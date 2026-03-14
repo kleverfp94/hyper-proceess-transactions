@@ -21,7 +21,7 @@ export class TransactionsService {
     return this.repository.findOrCreate(dto);
   }
 
-  async findAll(query: QueryTransactionsDto): Promise<Transaction[]> {
+  async findAll(query: QueryTransactionsDto): Promise<{ rows: Transaction[]; count: number }> {
     this.logger.log({ msg: 'Listing transactions', tenantId: query.tenantId });
     return this.repository.findAll(query);
   }

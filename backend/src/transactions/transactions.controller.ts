@@ -30,7 +30,7 @@ export class TransactionsController {
   @Post()
   async create(@Body() dto: CreateTransactionDto) {
     const job = await this.queue.add(PROCESS_TRANSACTION_JOB, dto, {
-      jobId: `${dto.tenantId}:${dto.externalId}`, // jobId único = idempotência na fila também
+      jobId: `${dto.tenantId}_${dto.externalId}`, // jobId único = idempotência na fila também
       attempts: 3,
       backoff: { type: 'exponential', delay: 1000 },
     });
@@ -50,8 +50,19 @@ export class TransactionsController {
 
   @Get()
   async findAll(@Query() query: QueryTransactionsDto) {
-    const transactions = await this.service.findAll(query);
-    return { statusCode: HttpStatus.OK, data: transactions };
+    const { rows, count } = await this.service.findAll(query);
+    const limit = query.limit ?? 20;
+    const page = query.page ?? 1;
+    return {
+      statusCode: HttpStatus.OK,
+      data: rows,
+      meta: {
+        total: count,
+        page,
+        limit,
+        totalPages: Math.ceil(count / limit),
+      },
+    };
   }
 
   @Get(':id')

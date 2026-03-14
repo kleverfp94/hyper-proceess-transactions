@@ -1,98 +1,217 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Hyper Process Transactions
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Sistema de processamento de transações financeiras com suporte a múltiplos tenants, processamento assíncrono via filas e emissão de eventos.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+---
 
-## Description
+## Projetos
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+### Backend (`/backend`)
 
-## Project setup
+API REST construída com **NestJS** responsável por receber, enfileirar e processar transações financeiras.
 
-```bash
-$ npm install
+**Stack:**
+- NestJS + TypeScript
+- MySQL + Sequelize ORM
+- Redis + BullMQ (fila de processamento)
+- Kafka (emissão de eventos)
+
+**Principais recursos:**
+- Criação de transações com idempotência em três camadas (jobId na fila, constraint único no banco, `findOrCreate`)
+- Processamento assíncrono com 3 tentativas e backoff exponencial
+- Listagem e consulta de transações por tenant, status e tipo
+- Suporte multi-tenant via `tenantId`
+
+**Endpoints:**
+
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| `POST` | `/transactions` | Cria e enfileira uma transação |
+| `GET` | `/transactions` | Lista transações (filtro por tenant, status, tipo) |
+| `GET` | `/transactions/:id` | Retorna uma transação pelo ID |
+
+---
+
+### Frontend (`/frontend`)
+
+Interface web construída com **React + Vite** para visualização e criação de transações.
+
+**Stack:**
+- React 18 + TypeScript
+- React Router DOM v6
+- Axios
+- CSS Modules
+
+**Páginas:**
+- `/` — Listagem de transações com filtros por status e tipo
+- `/nova` — Formulário de criação de transação
+- `/transacoes/:id` — Detalhe de uma transação
+
+---
+
+## Arquitetura
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Frontend (React)                      │
+│                         porta: 5173                          │
+│                                                              │
+│   TransactionsList ──── CreateTransaction ── TransactionDetail│
+└──────────────────────────────┬──────────────────────────────┘
+                               │ HTTP (Axios → /api proxy)
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│                     Backend (NestJS)                         │
+│                         porta: 3000                          │
+│                                                              │
+│  POST /transactions                                          │
+│        │                                                     │
+│        ▼                                                     │
+│  TransactionsController                                      │
+│        │  enqueue (jobId: tenantId_externalId)               │
+│        ▼                                                     │
+│  ┌─────────────┐     ┌──────────────────────────────────┐   │
+│  │  BullMQ     │────▶│  TransactionsProcessor (worker)  │   │
+│  │  Queue      │     │                                  │   │
+│  └─────────────┘     │  findOrCreate → MySQL            │   │
+│        │             │                                  │   │
+│        │             │  success → transaction.processed │   │
+│        │             │  failure → transaction.failed    │   │
+│        │             └──────────────┬───────────────────┘   │
+│        │                            │                        │
+└────────┼────────────────────────────┼────────────────────────┘
+         │                            │
+         ▼                            ▼
+  ┌─────────────┐             ┌──────────────┐
+  │    Redis    │             │    Kafka     │
+  │  (fila BullMQ)           │  (eventos)   │
+  └─────────────┘             └──────────────┘
+                                      │
+                              ┌───────┴────────┐
+                              │                │
+                    transaction.processed  transaction.failed
 ```
 
-## Compile and run the project
+### Fluxo de processamento
 
-```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+```
+Cliente HTTP
+    │
+    │ POST /transactions { externalId, tenantId, amount, type }
+    ▼
+TransactionsController
+    │
+    │ queue.add(jobId = tenantId_externalId)  ← idempotência na fila
+    ▼
+Redis (BullMQ Queue)
+    │
+    │ worker consome o job (3 tentativas, backoff exponencial)
+    ▼
+TransactionsProcessor
+    │
+    │ repository.findOrCreate()  ← idempotência no banco
+    ▼
+MySQL (tabela transactions)
+    │
+    ├── sucesso → emite evento "transaction.processed" no Kafka
+    └── falha   → emite evento "transaction.failed" no Kafka
 ```
 
-## Run tests
+---
 
-```bash
-# unit tests
-$ npm run test
+## Configuração
 
-# e2e tests
-$ npm run test:e2e
+### Backend (`backend/.env`)
 
-# test coverage
-$ npm run test:cov
+```env
+PORT=3000
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=root
+DB_PASS=
+DB_NAME=hyper_transactions
+REDIS_HOST=localhost
+REDIS_PORT=6379
+KAFKA_BROKERS=localhost:9092
+KAFKA_CLIENT_ID=hyper-transactions
 ```
 
-## Deployment
+### Frontend (`frontend/.env`)
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
-
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+```env
+VITE_API_BASE_URL=http://localhost:3000
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+---
 
-## Resources
+## Como rodar
 
-Check out a few resources that may come in handy when working with NestJS:
+### Backend
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+```bash
+cd backend
+npm install
+npm run start:dev
+```
 
-## Support
+### Frontend
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
-## Stay in touch
+---
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+## Status das transações
 
-## License
+| Status | Descrição |
+|--------|-----------|
+| `PENDING` | Aguardando processamento na fila |
+| `PROCESSED` | Processada com sucesso |
+| `FAILED` | Falhou após todas as tentativas |
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+---
+
+## Decisões de arquitetura
+
+### Por que essa organização?
+
+No backend, a separação em camadas (controller → service → repository + processor separado) permite que o worker da fila e o servidor HTTP escalem de forma independente. A fila desacopla o ato de *receber* a transação do ato de *processá-la*: um pico de requisições não pressiona o banco diretamente.
+
+A idempotência é garantida em três camadas:
+1. `jobId` único na fila BullMQ (`tenantId_externalId`) — rejeita duplicata antes de processar
+2. `findOrCreate` no repositório — garante atomicidade na escrita
+3. Constraint único no banco `(tenantId, externalId)` — última barreira
+
+### Onde colocaria cache?
+
+| Situação | Cache? | Motivo |
+|----------|--------|--------|
+| `GET /transactions/:id` com status `PROCESSED` ou `FAILED` | ✅ Sim (TTL longo) | Dado imutável após estado final |
+| `GET /transactions` (listagem por tenant) | ✅ Sim (TTL ~5s) | Reduz leitura repetida no banco |
+| `POST /transactions` | ❌ Não | Operação de escrita, precisa de idempotência real |
+| Transações com status `PENDING` | ❌ Não | Estado muda a qualquer momento |
+| Qualquer dado usado em auditoria financeira | ❌ Não | Requer consistência forte |
+
+### Como garantiria observabilidade em produção?
+
+O projeto já emite logs estruturados com campos como `jobId`, `status` e `error`. Em produção, a evolução seria:
+
+- **Logs**: formato JSON com `traceId`/`correlationId` propagado do HTTP até o Kafka, permitindo rastrear uma transação de ponta a ponta
+- **Métricas de fila**: tamanho da fila BullMQ, jobs ativos, falhos e tempo médio de processamento
+- **Kafka consumer lag**: aumento do lag indica que o worker não está acompanhando o volume
+- **Banco**: slow query log e monitoramento de locks no MySQL
+- **Alertas críticos**: fila crescendo sem consumo (worker caiu), taxa de falha acima do threshold, latência da API acima do SLA
+
+### Quando usar fila vs. chamada síncrona?
+
+**Usar fila (BullMQ)** quando:
+- O processamento pode falhar e precisa de retry controlado
+- A operação é lenta demais para resposta HTTP síncrona
+- O cliente não precisa do resultado imediato
+
+**Usar mensageria (Kafka)** quando:
+- Múltiplos sistemas precisam reagir ao mesmo evento (fan-out sem acoplamento)
+- Ex: serviço de notificação, contabilidade, antifraude consumindo `transaction.processed`

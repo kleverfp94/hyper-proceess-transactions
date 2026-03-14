@@ -34,13 +34,16 @@ export class TransactionsRepository {
     return { transaction, created };
   }
 
-  async findAll(query: QueryTransactionsDto): Promise<Transaction[]> {
+  async findAll(query: QueryTransactionsDto): Promise<{ rows: Transaction[]; count: number }> {
     const where: WhereOptions = { tenantId: query.tenantId };
 
     if (query.status) where.status = query.status;
     if (query.type) where.type = query.type;
 
-    return this.model.findAll({ where, order: [['createdAt', 'DESC']] });
+    const limit = query.limit ?? 20;
+    const offset = ((query.page ?? 1) - 1) * limit;
+
+    return this.model.findAndCountAll({ where, order: [['createdAt', 'DESC']], limit, offset });
   }
 
   async findById(id: string): Promise<Transaction | null> {
