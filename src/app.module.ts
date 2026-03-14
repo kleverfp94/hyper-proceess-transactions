@@ -1,27 +1,40 @@
+import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ConfigModule } from '@nestjs/config';
 import { SequelizeModule } from '@nestjs/sequelize';
+import { kafkaConfig, mysqlConfig, redisConfig } from './config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { TransactionsModule } from './transactions/transactions.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    // Carrega todos os configs globalmente — disponíveis em qualquer módulo via injeção
+    ConfigModule.forRoot({
+      isGlobal: true,
+      load: [mysqlConfig, redisConfig, kafkaConfig],
+    }),
 
     SequelizeModule.forRootAsync({
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
+      inject: [mysqlConfig.KEY],
+      useFactory: (cfg: ReturnType<typeof mysqlConfig>) => ({
         dialect: 'mysql',
-        host: config.get('DB_HOST', 'localhost'),
-        port: config.get<number>('DB_PORT', 3306),
-        username: config.get('DB_USER', 'root'),
-        password: config.get('DB_PASS', ''),
-        database: config.get('DB_NAME', 'hyper_transactions'),
+        host: cfg.host,
+        port: cfg.port,
+        username: cfg.username,
+        password: cfg.password,
+        database: cfg.database,
         autoLoadModels: true,
         synchronize: true,
         logging: false,
+      }),
+    }),
+
+    // BullModule global — TransactionsModule só precisa registrar a fila
+    BullModule.forRootAsync({
+      inject: [redisConfig.KEY],
+      useFactory: (cfg: ReturnType<typeof redisConfig>) => ({
+        connection: { host: cfg.host, port: cfg.port },
       }),
     }),
 

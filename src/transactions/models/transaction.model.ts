@@ -26,7 +26,7 @@ export enum TransactionStatus {
     // Constraint composta: mesma transação (externalId) não pode ser
     // processada duas vezes dentro do mesmo tenant (tenantId).
     // Tenants diferentes podem ter o mesmo externalId sem conflito.
-    { unique: true, fields: ['tenant_id', 'external_id'], name: 'uq_tenant_external' },
+    { unique: true, fields: ['tenantId', 'externalId'], name: 'uq_tenant_external' },
   ],
 })
 export class Transaction extends Model {
