@@ -37,9 +37,7 @@ export default function Layout({ children }: LayoutProps) {
 
       <main className={styles.main}>{children}</main>
 
-      <footer className={styles.footer}>
-        <span>© {new Date().getFullYear()} Hyper Group · Transactions</span>
-      </footer>
+
     </div>
   )
 }

@@ -215,3 +215,32 @@ O projeto já emite logs estruturados com campos como `jobId`, `status` e `error
 **Usar mensageria (Kafka)** quando:
 - Múltiplos sistemas precisam reagir ao mesmo evento (fan-out sem acoplamento)
 - Ex: serviço de notificação, contabilidade, antifraude consumindo `transaction.processed`
+
+---
+
+## Produção
+
+### Onde está o gargalo
+
+O gargalo está no **MySQL sob contenção de locks**. O `findOrCreate` executa um SELECT seguido de um INSERT em duas etapas separadas. Em alta concorrência, múltiplos workers tentam inserir o mesmo registro simultaneamente, gerando deadlocks ou espera por lock no constraint único `(tenantId, externalId)`. Quanto mais workers paralelos, maior a contenção.
+
+**Possíveis soluções: uso do DynamoDB ou Cassandra**
+
+Para volumes muito altos — milhões de transações por dia com múltiplos tenants crescendo simultaneamente — o MySQL começa a mostrar limites: escala vertical tem teto, sharding manual é complexo e o modelo de locks por linha ainda gera contenção sob escrita massiva.
+
+| Banco | Quando faz sentido | Trade-off |
+|-------|-------------------|-----------|
+| **Cassandra / ScyllaDB** | Volume massivo de escritas com alta disponibilidade e distribuição geográfica | Sem transações ACID, sem joins — modelagem orientada a padrões de acesso |
+| **DynamoDB** | Serverless, escala automática, idempotência nativa via condition expressions | Vendor lock-in AWS, custo imprevisível em leitura intensa |
+
+Ambos são projetados para escala horizontal nativa, com escritas distribuídas entre nós sem ponto único de contenção. O trade-off é real — sem ACID completo, sem joins — mas para um sistema de ingestão de transações em escala, esse trade-off é aceitável e esperado.
+
+### Qual seria o primeiro problema real em produção
+
+O primeiro problema real seria a **saturação do MySQL sob alto volume de escritas**. Por ser um banco relacional com escala vertical, o MySQL tem um teto físico: mais transações simultâneas significam mais contenção de locks, mais tempo de espera por conexão e degradação progressiva do throughput. Em um cenário com múltiplos tenants crescendo ao mesmo tempo, o banco se torna o gargalo central — sem possibilidade de distribuir a carga horizontalmente sem sharding manual, que traz complexidade operacional elevada.
+
+### Qual solução priorizaria primeiro e por quê
+
+**Réplica de leitura no MySQL**
+
+Com o `GET /transactions` paginado mas ainda sob carga de leitura, apontar as queries de listagem para uma réplica libera o primário exclusivamente para escritas. Isso reduz a pressão no banco principal e melhora a latência das leituras de forma independente do volume de processamento da fila.
